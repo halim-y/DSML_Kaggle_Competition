@@ -1,6 +1,7 @@
+import numpy as np
+import pandas as pd
 from tqdm import tqdm
 import time
-from joblib import Parallel, delayed
 
 # ==========================================
 # 1. VISUALIZATION HELPER
@@ -67,10 +68,10 @@ def tune_alpha(model, test_df, param_name='alpha', k=10, values=[0.0, 0.2, 0.5, 
 
         score = hits / total if total > 0 else 0
         results[val] = score
-        print(f"   [{val:.1f}] Hit Rate: {score:.4%}")
+        print(f"   [{val:.1f}] Hit Rate: {score:.8%}")
 
     best_val = max(results, key=results.get)
-    print(f"\n>>> Best {param_name}: {best_val} (Hit Rate: {results[best_val]:.4%})")
+    print(f"\n>>> Best {param_name}: {best_val} (Hit Rate: {results[best_val]:.8%})")
 
     return best_val
 
@@ -134,3 +135,79 @@ def tune_svd(train_df, test_df, k=10, components=[10, 25, 50, 100, 200, 300]):
     print(f"\n>>> Best SVD n_components: {best_n} (Hit Rate: {results[best_n]:.4%})")
 
     return best_n
+
+# ==========================================
+# AGILE TUNING: SAMPLE BY USER
+# ==========================================
+def get_tuning_sample(test_df, n_users=1000, random_state=42):
+    """
+    Creates a smaller test set by picking N random users
+    and keeping ALL their interactions (preserving time structure).
+    """
+    # 1. Get all unique users in Test
+    unique_users = test_df['user_id'].unique()
+
+    # 2. Pick N random users
+    if len(unique_users) > n_users:
+        np.random.seed(random_state)
+        sampled_users = np.random.choice(unique_users, size=n_users, replace=False)
+
+        # 3. Filter the Test DF to only these users
+        tuning_df = test_df[test_df['user_id'].isin(sampled_users)].copy()
+
+        print(f"   -> Sampling Strategy: Selected {n_users} Users")
+        print(f"   -> Original Rows: {len(test_df)} | Sampled Rows: {len(tuning_df)}")
+        return tuning_df
+    else:
+        # If we have fewer users than requested, just return the whole set
+        return test_df
+
+
+# ==========================================
+# 4. KAGGLE SUBMISSION GENERATOR
+# ==========================================
+def generate_kaggle_submission(model, target_user_ids, k=10, remove_seen=True, **kwargs):
+    """
+    Generates a submission DataFrame for ANY model class.
+
+    Args:
+        model: The trained model object (must have .recommend() method).
+        target_user_ids (list): List of user_ids to predict for.
+        k (int): Number of items to recommend per user.
+        remove_seen (bool): If True, filters out items the user has already interacted with.
+        **kwargs: Extra arguments for .recommend (e.g., hybrid_alpha=0.6, alpha=0.2).
+
+    Returns:
+        pd.DataFrame: DataFrame with columns ['user_id', 'recommendation'] ready for CSV export.
+    """
+    print(f">>> Generating predictions for {len(target_user_ids)} users...")
+
+    recommendations = []
+
+    # Progress bar to track generation
+    # Using tqdm.auto to work in both notebooks and scripts
+    for user_id in tqdm(target_user_ids, desc="Generating Submission"):
+        try:
+            # Polymorphic call: Works for CF, Content, Hybrid, or SVD
+            # We explicitly pass remove_seen, and unpack any other tuning params (alphas)
+            recs = model.recommend(user_id, top_k=k, remove_seen=remove_seen, **kwargs)
+
+            # Format: Space-separated string "id1 id2 id3..."
+            recs_str = " ".join([str(r) for r in recs])
+        except Exception as e:
+            # Fallback for errors (safeguard)
+            # print(f"Error for user {user_id}: {e}")
+            recs_str = ""
+
+        recommendations.append(recs_str)
+
+    # Create DataFrame matching Kaggle format
+    submission = pd.DataFrame({
+        'user_id': target_user_ids,
+        'recommendation': recommendations
+    })
+
+    # Sort by user_id to ensure consistent ordering
+    submission.sort_values(by='user_id', inplace=True)
+
+    return submission
