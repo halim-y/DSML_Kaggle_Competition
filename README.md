@@ -46,3 +46,19 @@ lazy_librarian/
     ```bash
     pip install -r requirements.txt
     ```
+
+Data:
+Cleaned and merged data, tf-idf matrix + miniLM embedding matrix
+
+Split:
+Based on pct_rank
+
+Model:
+Content + Collaborative Filtering = Hybrid model
+Inclusion of popularity and novelty features -> à comprendre mdr
+
+Evaluation of final model:
+   -> Hit Rate @ 10: 75.8417%
+   -> MAP @ 10: 42.3133%
+   -> Novelty: 1375.0498%
+   -> Coverage: 89.1058%
