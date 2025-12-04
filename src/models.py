@@ -55,7 +55,7 @@ class CollaborativeRecommender:
         # Pre-compute Global Popularity (Fallback)
         self.popular_items = train_df['item_id'].value_counts().head(20).index.tolist()
 
-    def recommend(self, user_id, top_k=10, remove_seen=True):
+    def recommend(self, user_id, top_k=10):
         # Cold Start
         if user_id not in self.user2idx:
             return self.popular_items[:top_k]
@@ -86,10 +86,6 @@ class CollaborativeRecommender:
 
         recommendations = []
         for idx in top_indices:
-            # OPTIONAL FILTER: Remove items already seen
-            if remove_seen and (idx in history_indices):
-                continue
-
             recommendations.append(self.idx2item[idx])
 
             if len(recommendations) >= top_k:
@@ -108,7 +104,7 @@ class ContentRecommender:
         self.idx_to_item = {v: k for k, v in item_to_row_idx.items()}
         self.popular_items = interactions_df['item_id'].value_counts().head(20).index.tolist()
 
-    def recommend(self, user_id, top_k=10, alpha=0.5, remove_seen=True):
+    def recommend(self, user_id, top_k=10, alpha=0.5):
         # 1. Get History
         user_data = self.interactions_df[self.interactions_df['user_id'] == user_id]
 
@@ -142,15 +138,9 @@ class ContentRecommender:
         candidate_indices = final_scores.argsort()[::-1]
 
         recommendations = []
-        history_ids = set(user_data['item_id'].unique())
 
         for idx in candidate_indices:
             item_id = self.idx_to_item.get(idx)
-
-            # Optional Filter: Remove items already seen
-            if remove_seen and (item_id in history_ids):
-                continue
-
             recommendations.append(item_id)
             if len(recommendations) >= top_k:
                 break
@@ -172,7 +162,7 @@ class HybridRecommender:
         max_count = item_counts.max()
         self.pop_scores = (item_counts / max_count).to_dict()
 
-    def recommend(self, user_id, top_k=10, hybrid_alpha=0.5, remove_seen=True, pop_weight=0.1):
+    def recommend(self, user_id, top_k=10, hybrid_alpha=0.5, pop_weight=0.1):
         """
         Hybrid Recommendation with Popularity Injection.
 
@@ -181,9 +171,8 @@ class HybridRecommender:
         """
         # 1. Get Candidates
         # Fetch more candidates to allow re-ranking
-        cf_items = self.cf_model.recommend(user_id, top_k=top_k * 50, remove_seen=remove_seen)
-        content_items = self.content_model.recommend(user_id, top_k=top_k * 50, alpha=self.content_alpha,
-                                                     remove_seen=remove_seen)
+        cf_items = self.cf_model.recommend(user_id, top_k=top_k * 50)
+        content_items = self.content_model.recommend(user_id, top_k=top_k * 50, alpha=self.content_alpha)
 
         # 2. RRF Scoring (Rank 0 -> 1.0)
         cf_scores = {item: 1.0 / (i + 1) for i, item in enumerate(cf_items)}
